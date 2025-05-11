@@ -15,6 +15,13 @@ class HumanCustom:
         valid_locations = board.get_valid_locations()
         available_powerups = board.get_available_powerups(board.CURR_PLAYER)
         
+        # Check if we're in a double move state
+        if board.double_move_available[board.CURR_PLAYER]:
+            print("\nDouble Move Active - Must use the same column")
+            col = board.double_move_column[board.CURR_PLAYER]
+            print(f"Required column: {col}")
+            return col
+        
         while True:
             print("\nAvailable moves:")
             print("1. Regular Move")

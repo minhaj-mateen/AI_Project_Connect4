@@ -35,22 +35,23 @@ class MinimaxCustom:
 
     def score_position(self, board, piece):
         score = 0
+        board_array = board.get_board()
 
         # Score center column (more weight)
-        center_array = [int(i) for i in list(board.get_board()[:, Board.COLUMN_COUNT//2])]
+        center_array = [int(i) for i in list(board_array[:, Board.COLUMN_COUNT//2])]
         center_count = center_array.count(piece)
         score += center_count * 10
 
         # Score Horizontal
         for r in range(Board.ROW_COUNT):
-            row_array = [int(i) for i in list(board.get_board()[r,:])]
+            row_array = [int(i) for i in list(board_array[r,:])]
             for c in range(Board.COLUMN_COUNT-3):
                 window = row_array[c:c+Board.WINDOW_LENGTH]
                 score += self.evaluate_window(window, piece)
 
         # Score Vertical
         for c in range(Board.COLUMN_COUNT):
-            col_array = [int(i) for i in list(board.get_board()[:,c])]
+            col_array = [int(i) for i in list(board_array[:,c])]
             for r in range(Board.ROW_COUNT-3):
                 window = col_array[r:r+Board.WINDOW_LENGTH]
                 score += self.evaluate_window(window, piece)
@@ -58,13 +59,13 @@ class MinimaxCustom:
         # Score positive sloped diagonal
         for r in range(Board.ROW_COUNT-3):
             for c in range(Board.COLUMN_COUNT-3):
-                window = [board.get_board()[r+i][c+i] for i in range(Board.WINDOW_LENGTH)]
+                window = [board_array[r+i][c+i] for i in range(Board.WINDOW_LENGTH)]
                 score += self.evaluate_window(window, piece)
 
         # Score negative sloped diagonal
         for r in range(Board.ROW_COUNT-3):
             for c in range(Board.COLUMN_COUNT-3):
-                window = [board.get_board()[r+3-i][c+i] for i in range(Board.WINDOW_LENGTH)]
+                window = [board_array[r+3-i][c+i] for i in range(Board.WINDOW_LENGTH)]
                 score += self.evaluate_window(window, piece)
 
         return score
@@ -94,22 +95,22 @@ class MinimaxCustom:
                 opp_piece = board_copy.get_opp_player(piece)
                 best_score = float('-inf') if opp_piece == board.PLAYER1_PIECE else float('inf')
                 for col in valid_locations:
-                    board_copy2 = board_copy.copy_board()
-                    board_copy2.drop_piece(col, opp_piece)
-                    score = self.score_position(board_copy2, piece)
+                    board_copy.drop_piece(col, opp_piece)
+                    score = self.score_position(board_copy, piece)
                     if (opp_piece == board.PLAYER1_PIECE and score > best_score) or \
                        (opp_piece == board.PLAYER2_PIECE and score < best_score):
                         best_score = score
+                    # Undo the move
+                    board_copy.undo_move(col)
                 new_score = best_score
         elif powerup_type == Board.DOUBLE_MOVE:
             # For double move, simulate both drops and evaluate
             col = kwargs.get('col')
             if col is not None and board_copy.is_valid_location(col):
-                board_copy2 = board_copy.copy_board()
-                board_copy2.drop_piece(col, piece)
-                if board_copy2.is_valid_location(col):
-                    board_copy2.drop_piece(col, piece)
-                    new_score = self.score_position(board_copy2, piece)
+                board_copy.drop_piece(col, piece)
+                if board_copy.is_valid_location(col):
+                    board_copy.drop_piece(col, piece)
+                    new_score = self.score_position(board_copy, piece)
                 else:
                     new_score = self.score_position(board_copy, piece)
             else:
@@ -126,34 +127,58 @@ class MinimaxCustom:
         valid_moves = []
         available_powerups = board.get_available_powerups(piece)
         
+        # Don't use powerups if the board is empty
+        if all(cell == Board.EMPTY for row in board.get_board() for cell in row):
+            return valid_moves
+        
+        # Limit the number of powerup evaluations to prevent excessive computation
+        max_evaluations = 5  # Reduced from 10 to 5
+        evaluations = 0
+        
         for powerup in available_powerups:
+            if evaluations >= max_evaluations:
+                break
+                
             if powerup == Board.REMOVE_PIECE:
                 # Try removing a piece from each column
                 for col in range(Board.COLUMN_COUNT):
+                    if evaluations >= max_evaluations:
+                        break
                     if not board.is_valid_location(col):
                         score = self.evaluate_powerup(board, powerup, piece, col=col)
                         valid_moves.append(('powerup', powerup, {'col': col, 'score': score}))
+                        evaluations += 1
             
             elif powerup == Board.GRAVITY_FLIP:
                 score = self.evaluate_powerup(board, powerup, piece)
                 valid_moves.append(('powerup', powerup, {'score': score}))
+                evaluations += 1
             
             elif powerup == Board.SWAP_COLOR:
                 # Try swapping colors in each row and column
                 for i in range(Board.ROW_COUNT):
+                    if evaluations >= max_evaluations:
+                        break
                     score = self.evaluate_powerup(board, powerup, piece, is_row=True, index=i)
                     valid_moves.append(('powerup', powerup, {'is_row': True, 'index': i, 'score': score}))
+                    evaluations += 1
                 
                 for i in range(Board.COLUMN_COUNT):
+                    if evaluations >= max_evaluations:
+                        break
                     score = self.evaluate_powerup(board, powerup, piece, is_row=False, index=i)
                     valid_moves.append(('powerup', powerup, {'is_row': False, 'index': i, 'score': score}))
+                    evaluations += 1
             
             elif powerup == Board.DOUBLE_MOVE:
                 # Try enabling double move for each valid column
                 for col in range(Board.COLUMN_COUNT):
+                    if evaluations >= max_evaluations:
+                        break
                     if board.is_valid_location(col):
                         score = self.evaluate_powerup(board, powerup, piece, col=col)
                         valid_moves.append(('powerup', powerup, {'col': col, 'score': score}))
+                        evaluations += 1
         
         return valid_moves
 
@@ -176,19 +201,7 @@ class MinimaxCustom:
             value = float('-inf')
             column = valid_locations[0]
             
-            # First check if we have a double move available
-            if board.double_move_available[board.PLAYER1_PIECE]:
-                col = board.double_move_column[board.PLAYER1_PIECE]
-                if col in valid_locations:
-                    board_copy = board.copy_board()
-                    board_copy.drop_piece(col, board.PLAYER1_PIECE)
-                    board_copy.drop_piece(col, board.PLAYER1_PIECE)
-                    new_score = self.minimax(board_copy, depth-1, alpha, beta, False)[1]
-                    if new_score > value:
-                        value = new_score
-                        column = ('double', col)
-            
-            # Then check regular moves
+            # First check regular moves
             for col in valid_locations:
                 board_copy = board.copy_board()
                 board_copy.drop_piece(col, board.PLAYER1_PIECE)
@@ -200,12 +213,13 @@ class MinimaxCustom:
                 if alpha >= beta:
                     break
             
-            # Finally check powerup moves
-            powerup_moves = self.get_valid_powerup_moves(board, board.PLAYER1_PIECE)
-            for move_type, powerup, params in powerup_moves:
-                if params['score'] > value:
-                    value = params['score']
-                    column = ('powerup', powerup, params)
+            # Then check powerup moves if depth > 1
+            if depth > 1:
+                powerup_moves = self.get_valid_powerup_moves(board, board.PLAYER1_PIECE)
+                for move_type, powerup, params in powerup_moves:
+                    if params['score'] > value:
+                        value = params['score']
+                        column = ('powerup', powerup, params)
             
             return column, value
 
@@ -213,19 +227,7 @@ class MinimaxCustom:
             value = float('inf')
             column = valid_locations[0]
             
-            # First check if we have a double move available
-            if board.double_move_available[board.PLAYER2_PIECE]:
-                col = board.double_move_column[board.PLAYER2_PIECE]
-                if col in valid_locations:
-                    board_copy = board.copy_board()
-                    board_copy.drop_piece(col, board.PLAYER2_PIECE)
-                    board_copy.drop_piece(col, board.PLAYER2_PIECE)
-                    new_score = self.minimax(board_copy, depth-1, alpha, beta, True)[1]
-                    if new_score < value:
-                        value = new_score
-                        column = ('double', col)
-            
-            # Then check regular moves
+            # First check regular moves
             for col in valid_locations:
                 board_copy = board.copy_board()
                 board_copy.drop_piece(col, board.PLAYER2_PIECE)
@@ -237,12 +239,13 @@ class MinimaxCustom:
                 if alpha >= beta:
                     break
             
-            # Finally check powerup moves
-            powerup_moves = self.get_valid_powerup_moves(board, board.PLAYER2_PIECE)
-            for move_type, powerup, params in powerup_moves:
-                if params['score'] < value:
-                    value = params['score']
-                    column = ('powerup', powerup, params)
+            # Then check powerup moves if depth > 1
+            if depth > 1:
+                powerup_moves = self.get_valid_powerup_moves(board, board.PLAYER2_PIECE)
+                for move_type, powerup, params in powerup_moves:
+                    if params['score'] < value:
+                        value = params['score']
+                        column = ('powerup', powerup, params)
             
             return column, value
 

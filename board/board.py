@@ -142,7 +142,7 @@ class Board:
         # Create a copy of the board
         new_board = np.zeros((self.ROW_COUNT, self.COLUMN_COUNT), dtype=int)
         
-        # For each column, flip the pieces
+        # For each column, flip the pieces and make them fall down
         for col in range(self.COLUMN_COUNT):
             pieces = []
             # Collect all pieces in the column
@@ -150,27 +150,15 @@ class Board:
                 if self.board[row][col] != self.EMPTY:
                     pieces.append(self.board[row][col])
             
-            # Place pieces from bottom up
+            # Place pieces from bottom up in the new board
             for i, piece_val in enumerate(pieces):
                 new_board[self.ROW_COUNT - 1 - i][col] = piece_val
         
+        # Update the board
         self.board = new_board
         
-        # Make pieces fall down in each column
-        for col in range(self.COLUMN_COUNT):
-            # Move all pieces down to the bottom
-            pieces = []
-            for row in range(self.ROW_COUNT):
-                if self.board[row][col] != self.EMPTY:
-                    pieces.append(self.board[row][col])
-            
-            # Clear the column
-            for row in range(self.ROW_COUNT):
-                self.board[row][col] = self.EMPTY
-            
-            # Place pieces from bottom up
-            for i, piece_val in enumerate(pieces):
-                self.board[self.ROW_COUNT - 1 - i][col] = piece_val
+        # Update the number of filled slots
+        self.num_slots_filled = np.count_nonzero(self.board)
         
         return True
 
@@ -198,24 +186,57 @@ class Board:
             return True
         return False
 
+    def undo_move(self, col):
+        """Undo the last move in the specified column"""
+        # Find the topmost piece in the column
+        for row in range(self.ROW_COUNT-1, -1, -1):
+            if self.board[row][col] != self.EMPTY:
+                # Remove the piece
+                self.board[row][col] = self.EMPTY
+                self.num_slots_filled -= 1
+                # Update player turn
+                self.CURR_PLAYER = self.PREV_PLAYER
+                self.PREV_PLAYER = self.get_opp_player(self.CURR_PLAYER)
+                return True
+        return False
+
     def use_powerup(self, powerup_type, piece, **kwargs):
-        """Use a powerup and track its usage"""
+        """Use a powerup"""
         if powerup_type in self.powerups_used[piece]:
-            return False  # Powerup already used
+            return False
         
-        success = False
         if powerup_type == self.REMOVE_PIECE:
-            success = self.remove_piece(kwargs.get('col'), piece)
+            col = kwargs.get('col')
+            if col is not None:
+                success = self.remove_piece(col, piece)
+                if success:
+                    self.powerups_used[piece].append(powerup_type)
+                return success
         elif powerup_type == self.GRAVITY_FLIP:
             success = self.gravity_flip(piece)
+            if success:
+                self.powerups_used[piece].append(powerup_type)
+            return success
         elif powerup_type == self.SWAP_COLOR:
-            success = self.swap_color(piece, kwargs.get('is_row'), kwargs.get('index'))
+            is_row = kwargs.get('is_row')
+            index = kwargs.get('index')
+            if is_row is not None and index is not None:
+                success = self.swap_color(piece, is_row, index)
+                if success:
+                    self.powerups_used[piece].append(powerup_type)
+                return success
         elif powerup_type == self.DOUBLE_MOVE:
-            success = self.enable_double_move(piece, kwargs.get('col'))
-        
-        if success:
-            self.powerups_used[piece].append(powerup_type)
-        return success
+            col = kwargs.get('col')
+            if col is not None:
+                success = self.enable_double_move(piece, col)
+                if success:
+                    self.powerups_used[piece].append(powerup_type)
+                    # Set up for the second move
+                    self.double_move_available[piece] = True
+                    self.double_move_column[piece] = col
+                    return ('double', col)  # Return a tuple indicating a double move
+                return False
+        return False
 
     def get_available_powerups(self, piece):
         """Get list of available powerups for a player"""

@@ -71,10 +71,11 @@ class Connect4Game:
             elif move[0] == 'double':
                 col = move[1]
                 if self.board.is_valid_location(col):
+                    # Execute first move
                     self.board.drop_piece(col, player_piece)
-                    self.board.drop_piece(col, player_piece)
-                    self.board.double_move_available[player_piece] = False
-                    self.board.double_move_column[player_piece] = None
+                    # Set up for second move
+                    self.board.double_move_available[player_piece] = True
+                    self.board.double_move_column[player_piece] = col
                     if self.ui:
                         self.graphics_board.draw_gboard(self.board)
                         self.graphics_board.update_gboard()
@@ -82,7 +83,16 @@ class Connect4Game:
                 return False
         else:
             if self.board.is_valid_location(move):
+                # If this is a second move of a double move, check the column
+                if self.board.double_move_available[player_piece]:
+                    if move != self.board.double_move_column[player_piece]:
+                        print("Invalid move: Must use the same column for double move")
+                        return False
                 self.board.drop_piece(move, player_piece)
+                # Reset double move state after second move
+                if self.board.double_move_available[player_piece]:
+                    self.board.double_move_available[player_piece] = False
+                    self.board.double_move_column[player_piece] = None
                 if self.ui:
                     self.graphics_board.draw_gboard(self.board)
                     self.graphics_board.update_gboard()
@@ -130,7 +140,9 @@ class Connect4Game:
                 
                 if self.handle_move(move, Board.PLAYER1_PIECE):
                     self.moves_count_p1 += 1
-                    self.next_turn()
+                    # Only switch turns if not in double move state
+                    if not self.board.double_move_available[Board.PLAYER1_PIECE]:
+                        self.next_turn()
                     self.game_over = self.check_win(Board.PLAYER1_PIECE)
             end = time.perf_counter()
             self.time_p1 += (end - start)
@@ -149,7 +161,9 @@ class Connect4Game:
                 
                 if self.handle_move(move, Board.PLAYER2_PIECE):
                     self.moves_count_p2 += 1
-                    self.next_turn()
+                    # Only switch turns if not in double move state
+                    if not self.board.double_move_available[Board.PLAYER2_PIECE]:
+                        self.next_turn()
                     self.game_over = self.check_win(Board.PLAYER2_PIECE)
             end = time.perf_counter()
             self.time_p2 += (end - start)
@@ -313,7 +327,7 @@ def bot_vs_bot_screen():
             second_bot= bot_to_play
 
         if first_bot != None and second_bot != None:
-            start_game(first_bot, second_bot, ui=False)  # Disable UI for bot vs bot
+            start_game(first_bot, second_bot, ui=True)  # Disable UI for bot vs bot
 
     minimax_button = graphics_board.create_button(60, 220, 400, 40, '1. MINIMAX BOT',  bots_to_play_against, ("minimax"))
     montecarlo_button = graphics_board.create_button(60, 280, 400, 40, '2. MONTECARLO SEARCH BOT', bots_to_play_against, ("montecarlo"))
